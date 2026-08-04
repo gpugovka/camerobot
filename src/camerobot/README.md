@@ -139,9 +139,9 @@ ros2 run camerobot talker
 
 The following screenshot examples show successful talker/listener communication between the Raspberry Pi publisher and the Mac listener.
 
-![](../screenshots/talker-running.png)
+![](resources/pi_camera_publisher_log.png)
 
-![](../screenshots/listener-running.png)
+![](resources/desktop_subscriber_log.png)
 
 ## Notes
 
