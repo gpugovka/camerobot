@@ -101,6 +101,9 @@ colcon build --packages-select camerobot --symlink-install --parallel-workers 1 
 source install/setup.bash
 export ROS_DOMAIN_ID=0
 ros2 run camerobot talker
+
+# (optional) run the Pi camera publisher to publish camera frames
+ros2 run camerobot pi_camera_publisher
 ```
 
 ## Incremental update workflow
@@ -149,4 +152,27 @@ The following screenshot examples show successful talker/listener communication 
 - Always source `/opt/ros/jazzy/setup.bash` before building and running.
 - Use `source install/setup.bash` after `colcon build`.
 - Use `--parallel-workers 1 --cmake-args -DCMAKE_BUILD_PARALLEL_LEVEL=1` on the Pi for low-memory builds.
+
+Camera notes (Pi ribbon camera)
+
+- Ensure the camera is enabled and that the OS provides a V4L2 device (e.g. `/dev/video0`). On Ubuntu you may need to install and test `libcamera` (`libcamera-apps`) and `v4l-utils`.
+- Install OpenCV and `cv_bridge` on the Pi before building:
+
+```bash
+sudo apt update
+sudo apt install -y libopencv-dev v4l-utils
+sudo apt install -y ros-jazzy-cv-bridge
+```
+
+- Test the camera on the Pi before running the node:
+
+```bash
+# try libcamera preview (if available)
+libcamera-hello -t 2000
+
+# or list video devices
+v4l2-ctl --list-devices
+```
+
+If your camera device appears as `/dev/video0`, `ros2 run camerobot pi_camera_publisher` will capture and publish frames to `/camera/image`.
 
