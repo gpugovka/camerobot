@@ -1,11 +1,12 @@
-# camerobot ROS2 Lab Guide
+# camerobot ROS 2 Starter Guide
 
-This README documents the minimal working ROS2 workflow for the `camerobot` package.
+This README documents the minimal working ROS 2 workflow for the `camerobot` package.
 
 It covers:
 - Building and running the Mac listener in Docker
-- Setting up a fresh Raspberry Pi to build and run the talker
-- Incremental update, build, and run commands
+- Building and running the Raspberry Pi talker
+- Incremental update workflow
+- Current build commands, including the low-memory Pi build command
 
 ## Mac listener setup
 
@@ -18,7 +19,7 @@ mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws
 ```
 
-4. Start the ROS2 Jazzy container:
+4. Start the ROS 2 Jazzy container:
 
 ```bash
 docker run -it --rm \
@@ -28,7 +29,7 @@ docker run -it --rm \
   osrf/ros:jazzy-desktop
 ```
 
-5. Confirm `camerobot` is under `src/`:
+5. Confirm the package is present:
 
 ```bash
 ls src/camerobot
@@ -53,9 +54,9 @@ ros2 run camerobot listener
 
 ## Raspberry Pi talker setup
 
-1. Flash Ubuntu 24.04 aarch64 to the Pi.
-2. Boot it and connect with SSH.
-3. Install ROS2 Jazzy and build tools:
+1. Flash Ubuntu 24.04 aarch64 to the Raspberry Pi and boot it.
+2. Connect to the Pi over SSH.
+3. Install ROS 2 Jazzy and build tools:
 
 ```bash
 sudo apt update
@@ -71,17 +72,17 @@ sudo apt update
 sudo apt install -y ros-jazzy-desktop python3-rosdep python3-colcon-common-extensions build-essential cmake
 ```
 
-4. Create the workspace:
+4. Create the workspace on the Pi:
 
 ```bash
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
 ```
 
-5. Copy the package from Mac to Pi:
+5. Copy the package from your Mac to the Pi:
 
 ```bash
-scp -r ~/ros2_ws/src/camerobot erinb@<pi-ip>:~/ros2_ws/src/
+scp -r ~/ros2_ws/src/camerobot <pi-user>@<pi-ip>:~/ros2_ws/src/
 ```
 
 6. Build on the Pi:
@@ -107,12 +108,12 @@ ros2 run camerobot talker
 ### Sync code changes to the Pi
 
 ```bash
-scp -r ~/ros2_ws/src/camerobot erinb@<pi-ip>:~/ros2_ws/src/
+scp -r ~/ros2_ws/src/camerobot <pi-user>@<pi-ip>:~/ros2_ws/src/
 ```
 
 ### Rebuild after changes
 
-On Mac listener container:
+On the Mac listener container:
 
 ```bash
 cd /workspace
@@ -123,7 +124,7 @@ export ROS_DOMAIN_ID=0
 ros2 run camerobot listener
 ```
 
-On Raspberry Pi:
+On the Raspberry Pi:
 
 ```bash
 cd ~/ros2_ws
@@ -134,39 +135,18 @@ export ROS_DOMAIN_ID=0
 ros2 run camerobot talker
 ```
 
-## Important notes
+## Screenshots
+
+The following screenshot examples show successful talker/listener communication between the Raspberry Pi publisher and the Mac listener.
+
+![](../screenshots/talker-running.png)
+
+![](../screenshots/listener-running.png)
+
+## Notes
 
 - Keep `ROS_DOMAIN_ID` the same on both machines.
 - Always source `/opt/ros/jazzy/setup.bash` before building and running.
 - Use `source install/setup.bash` after `colcon build`.
-- If the Pi has low memory, enable swap or use `--parallel-workers 1`.
+- Use `--parallel-workers 1 --cmake-args -DCMAKE_BUILD_PARALLEL_LEVEL=1` on the Pi for low-memory builds.
 
-## What to avoid
-
-- Do not try to build before ROS is installed on the Pi.
-- Do not use `python3-rosdep2` if `python3-rosdep` is available.
-- Do not pass `-j1` directly as a CMake argument.
-
-## Quick commands
-
-### Build listener on Mac
-
-```bash
-source /opt/ros/jazzy/setup.bash
-cd /workspace
-colcon build --packages-select camerobot --symlink-install
-source install/setup.bash
-export ROS_DOMAIN_ID=0
-ros2 run camerobot listener
-```
-
-### Build talker on Pi
-
-```bash
-source /opt/ros/jazzy/setup.bash
-cd ~/ros2_ws
-colcon build --packages-select camerobot --symlink-install --parallel-workers 1 --cmake-args -DCMAKE_BUILD_PARALLEL_LEVEL=1
-source install/setup.bash
-export ROS_DOMAIN_ID=0
-ros2 run camerobot talker
-```
