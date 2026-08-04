@@ -1,0 +1,20 @@
+{
+  "name": "camerobot-ros2",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "workspaceFolder": "/workspace",
+  "runArgs": [
+    "--network=host",
+    "--privileged"
+  ],
+  "extensions": [
+    "ms-vscode.cpptools",
+    "ms-vscode-remote.remote-containers",
+    "ms-python.python"
+  ],
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash"
+  },
+  "postCreateCommand": "apt-get update && apt-get install -y iproute2 && rm -rf /var/lib/apt/lists/*",
+  "remoteUser": "root"
+}
