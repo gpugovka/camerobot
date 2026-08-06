@@ -1,14 +1,14 @@
 # camerobot ROS 2 Starter Guide
 
-This README documents the minimal working ROS 2 workflow for the `camerobot` package.
+This README reflects the current working workflow for camera-frame transport as a serialized string.
 
 It covers:
-- Building and running the Mac listener in Docker
-- Building and running the Raspberry Pi talker
-- Incremental update workflow
-- Current build commands, including the low-memory Pi build command
+- Docker listener commands (Mac host running ROS in container)
+- Raspberry Pi talker commands
+- Full package sync from Docker workspace to Pi
+- Clean rebuild and low-memory fallback on Pi
 
-## Mac listener setup
+## Docker listener setup (Mac)
 
 1. Install Docker Desktop for Mac.
 2. Open Terminal.
@@ -29,6 +29,8 @@ docker run -it --rm \
   osrf/ros:jazzy-desktop
 ```
 
+The container opens in `/workspace`, so the commands below use that path directly.
+
 5. Confirm the package is present:
 
 ```bash
@@ -41,14 +43,18 @@ ls src/camerobot
 source /opt/ros/jazzy/setup.bash
 rosdep update
 rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy
-colcon build --packages-select camerobot --symlink-install
+colcon build --packages-select camerobot --symlink-install --cmake-args -DBUILD_TESTING=OFF
 ```
 
-7. Run the listener:
+7. Run the listener with the current network env:
 
 ```bash
-source install/setup.bash
+source /workspace/install/setup.bash
+unset ROS_LOCALHOST_ONLY
+unset FASTDDS_DEFAULT_PROFILES_FILE
 export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 ros2 run camerobot listener
 ```
 
@@ -92,59 +98,78 @@ source /opt/ros/jazzy/setup.bash
 cd ~/ros2_ws
 rosdep update
 rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy
-colcon build --packages-select camerobot --symlink-install --parallel-workers 1 --cmake-args -DCMAKE_BUILD_PARALLEL_LEVEL=1
+colcon build --packages-select camerobot --symlink-install --parallel-workers 1 --cmake-args -DBUILD_TESTING=OFF -DCMAKE_BUILD_PARALLEL_LEVEL=1
 ```
 
 7. Run the talker:
 
 ```bash
-source install/setup.bash
-export ROS_DOMAIN_ID=0
+source /opt/ros/jazzy/setup.bash
+source /home/<pi-user>/ros2_ws/install/setup.bash
 ros2 run camerobot talker
-
-# (optional) run the Pi camera publisher to publish camera frames
-ros2 run camerobot pi_camera_publisher
 ```
 
 ## Incremental update workflow
 
-### Sync code changes to the Pi
-
-```bash
-scp -r ~/ros2_ws/src/camerobot <pi-user>@<pi-ip>:~/ros2_ws/src/
-```
-
-### Rebuild after changes
-
-On the Mac listener container:
+### Sync full package from Docker workspace to Pi
 
 ```bash
 cd /workspace
-source /opt/ros/jazzy/setup.bash
-colcon build --packages-select camerobot --symlink-install
-source install/setup.bash
-export ROS_DOMAIN_ID=0
-ros2 run camerobot listener
+scp -r /workspace/src/camerobot <pi-user>@<pi-ip>:/home/<pi-user>/ros2_ws/src/
 ```
 
-On the Raspberry Pi:
+### Clean rebuild on Pi after sync
 
 ```bash
-cd ~/ros2_ws
+cd /home/<pi-user>/ros2_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select camerobot --symlink-install --parallel-workers 1 --cmake-args -DCMAKE_BUILD_PARALLEL_LEVEL=1
-source install/setup.bash
-export ROS_DOMAIN_ID=0
-ros2 run camerobot talker
+rm -rf /home/<pi-user>/ros2_ws/build/camerobot /home/<pi-user>/ros2_ws/install/camerobot /home/<pi-user>/ros2_ws/log
+colcon build --packages-select camerobot --symlink-install --parallel-workers 1 --cmake-args -DBUILD_TESTING=OFF -DCMAKE_BUILD_PARALLEL_LEVEL=1
+source /home/<pi-user>/ros2_ws/install/setup.bash
 ```
+
+### Low-memory fallback on Pi (OOM protection)
+
+If the build is killed by OOM, use a temporary swapfile and sequential build:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+free -h
+rm -rf /home/<pi-user>/ros2_ws/build/camerobot /home/<pi-user>/ros2_ws/install/camerobot
+cd /home/<pi-user>/ros2_ws
+source /opt/ros/jazzy/setup.bash
+MAKEFLAGS="-j1" colcon build --packages-select camerobot --executor sequential
+```
+
+After the build:
+
+```bash
+sudo swapoff /swapfile && sudo rm /swapfile
+```
+
+### Run order for verification
+
+1. Start Pi talker.
+2. Start Docker listener.
+3. Confirm listener logs received frames.
+
+## Current payload format
+
+Talker publishes string payloads on `topic` in this format:
+
+`v3|mono8|<width>|<height>|<base64>`
+
+Listener is expected to receive the versioned format above.
 
 ## Screenshots
 
-The following screenshot examples show successful talker/listener communication between the Raspberry Pi publisher and the Mac listener.
+Current images are kept for reference.
 
 ![](resources/pi_camera_publisher_log.png)
 
 ![](resources/desktop_subscriber_log.png)
+
+TODO: recapture and replace both screenshots with current `v3` talker/listener logs after end-to-end verification.
 
 ## Notes
 
@@ -156,12 +181,11 @@ The following screenshot examples show successful talker/listener communication 
 Camera notes (Pi ribbon camera)
 
 - Ensure the camera is enabled and that the OS provides a V4L2 device (e.g. `/dev/video0`). On Ubuntu you may need to install and test `libcamera` (`libcamera-apps`) and `v4l-utils`.
-- Install OpenCV and `cv_bridge` on the Pi before building:
+- Install OpenCV and video utilities on the Pi before building:
 
 ```bash
 sudo apt update
 sudo apt install -y libopencv-dev v4l-utils
-sudo apt install -y ros-jazzy-cv-bridge
 ```
 
 - Test the camera on the Pi before running the node:
@@ -174,5 +198,5 @@ libcamera-hello -t 2000
 v4l2-ctl --list-devices
 ```
 
-If your camera device appears as `/dev/video0`, `ros2 run camerobot pi_camera_publisher` will capture and publish frames to `/camera/image`.
+If your camera device appears as `/dev/video0`, `ros2 run camerobot talker` will capture and publish serialized frame strings on `topic`.
 
