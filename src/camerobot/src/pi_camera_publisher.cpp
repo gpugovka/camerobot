@@ -14,6 +14,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include "camerobot/frame_image_serialization.hpp"
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
