@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cerrno>
 #include <cstring>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <netinet/in.h>
@@ -10,6 +11,7 @@
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -39,7 +41,7 @@ private:
   void receiver_loop()
   {
     while (running_.load()) {
-      if (\!connect_to_remote()) {
+      if (!connect_to_remote()) {
         sleep_retry();
         continue;
       }
@@ -59,7 +61,7 @@ private:
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(remote_port_);
-    if (inet_pton(AF_INET, remote_ip_.c_str(), &server_addr.sin_addr) \!= 1) {
+    if (inet_pton(AF_INET, remote_ip_.c_str(), &server_addr.sin_addr) != 1) {
       close_socket();
       return false;
     }
@@ -84,13 +86,13 @@ private:
 
       buffer.append(temp, static_cast<size_t>(count));
       size_t pos;
-      while ((pos = buffer.find('\n')) \!= std::string::npos) {
+      while ((pos = buffer.find('\n')) != std::string::npos) {
         std::string line = buffer.substr(0, pos);
         buffer.erase(0, pos + 1);
-        if (\!line.empty() && line.back() == '\r') {
+        if (!line.empty() && line.back() == '\r') {
           line.pop_back();
         }
-        if (\!line.empty()) {
+        if (!line.empty()) {
           publish_remote_message(line);
         }
       }
@@ -102,6 +104,26 @@ private:
     auto message = std_msgs::msg::String();
     message.data = text;
     publisher_->publish(message);
+
+    const size_t marker_pos = text.find("|frame=");
+    if (marker_pos != std::string::npos) {
+      const std::string frame_serialized = text.substr(marker_pos + 7);
+      const std::vector<uint8_t> jpeg_bytes(frame_serialized.begin(), frame_serialized.end());
+      save_jpeg_bytes_to_file(jpeg_bytes, "last_frame.jpg");
+    }
+  }
+
+  bool save_jpeg_bytes_to_file(const std::vector<uint8_t> &jpeg_bytes, const std::string &filename)
+  {
+    if (jpeg_bytes.empty()) {
+      return false;
+    }
+    std::ofstream out(filename, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) {
+      return false;
+    }
+    out.write(reinterpret_cast<const char *>(jpeg_bytes.data()), static_cast<std::streamsize>(jpeg_bytes.size()));
+    return out.good();
   }
 
   void sleep_retry()
