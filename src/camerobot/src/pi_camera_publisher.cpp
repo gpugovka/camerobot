@@ -130,15 +130,15 @@ private:
         {
           std::unique_lock<std::mutex> lock(queue_mutex_);
           queue_cv_.wait(lock, [this] {
-            return \!outgoing_queue_.empty() || \!running_.load();
+            return !outgoing_queue_.empty() || !running_.load();
           });
-          if (\!running_.load()) {
+          if (!running_.load()) {
             break;
           }
           outgoing_queue_.swap(outbound);
         }
 
-        if (\!send_to_client(outbound)) {
+        if (!send_to_client(outbound)) {
           break;
         }
       }
@@ -155,7 +155,7 @@ private:
     }
 
     for (const auto &message : messages) {
-      if (\!send_all(client_fd_, message.c_str(), message.size())) {
+      if (!send_all(client_fd_, message.c_str(), message.size())) {
         return false;
       }
     }
@@ -174,7 +174,7 @@ private:
 
   void queue_message(const std::string &text)
   {
-    if (\!client_connected_.load()) {
+    if (!client_connected_.load()) {
       return;
     }
     {
@@ -187,7 +187,7 @@ private:
   void timer_callback()
   {
     auto message = std_msgs::msg::String();
-    message.data = "v4|Hello from " + machine_info_ + "\! Count: " + std::to_string(count_++);
+    message.data = "v4|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
     RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
     publisher_->publish(message);
 
