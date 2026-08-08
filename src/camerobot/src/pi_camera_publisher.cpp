@@ -193,7 +193,7 @@ private:
   void timer_callback()
   {
     auto message = std_msgs::msg::String();
-    message.data = "v4|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
+    message.data = "v5|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
     RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
     publisher_->publish(message);
 
@@ -201,6 +201,10 @@ private:
     const std::string frame_serialized =
       serialize_frame_to_string(camera_, camera_ready_, this->get_logger());
     if (!frame_serialized.empty()) {
+      const std::vector<uint8_t> jpeg_bytes = deserialize_frame_to_jpeg_bytes(frame_serialized);
+      if (!jpeg_bytes.empty()) {
+        save_jpeg_bytes_to_file(jpeg_bytes, "last_frame_sent.jpg");
+      }
       wire_message += "|frame=" + frame_serialized;
     }
     wire_message += "\n";
