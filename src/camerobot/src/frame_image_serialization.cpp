@@ -1,4 +1,5 @@
 #include "camerobot/frame_image_serialization.hpp"
+#include "camerobot/base64.hpp"
 #include <filesystem>
 #include <fstream>
 #include <opencv2/imgcodecs.hpp>
@@ -18,12 +19,12 @@ std::string serialize_frame_to_string(cv::VideoCapture &camera, bool camera_read
   if (!cv::imencode(".jpg", frame, encoded_jpeg)) {
     return "";
   }
-  return std::string(encoded_jpeg.begin(), encoded_jpeg.end());
+  return camerobot::base64_encode(encoded_jpeg);
 }
 
 std::vector<uint8_t> deserialize_frame_to_jpeg_bytes(const std::string &frame_serialized)
 {
-  return std::vector<uint8_t>(frame_serialized.begin(), frame_serialized.end());
+  return camerobot::base64_decode(frame_serialized);
 }
 
 bool save_jpeg_bytes_to_file(const std::vector<uint8_t> &jpeg_bytes, const std::string &filename)

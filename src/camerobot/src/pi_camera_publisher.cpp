@@ -48,6 +48,11 @@ public:
     uname(&sys_info);
     machine_info_ = std::string(sys_info.sysname) + " (" + std::string(sys_info.machine) + ")";
 
+    camera_ready_ = camera_.open(0);
+    if (!camera_ready_) {
+      RCLCPP_WARN(this->get_logger(), "Camera open failed; frame payloads will be skipped");
+    }
+
     timer_ = this->create_wall_timer(500ms, std::bind(&PiCameraPublisher::timer_callback, this));
     start_tcp_server();
   }
@@ -192,7 +197,13 @@ private:
     RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
     publisher_->publish(message);
 
-    std::string wire_message = message.data + "\n";
+    std::string wire_message = message.data;
+    const std::string frame_serialized =
+      serialize_frame_to_string(camera_, camera_ready_, this->get_logger());
+    if (!frame_serialized.empty()) {
+      wire_message += "|frame=" + frame_serialized;
+    }
+    wire_message += "\n";
     queue_message(wire_message);
   }
 
@@ -200,6 +211,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
   size_t count_;
   std::string machine_info_;
+  cv::VideoCapture camera_;
+  bool camera_ready_ = false;
 
   uint16_t port_;
   std::atomic<bool> running_;
