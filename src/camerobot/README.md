@@ -4,7 +4,7 @@ This package builds two executables:
 - `talker` (`src/pi_camera_publisher.cpp`): publishes ROS text messages and serves TCP payloads.
 - `listener` (`src/desktop_subscriber.cpp`): receives TCP payloads and republishes to ROS.
 
-Current payload format is versioned text (`v6|...`) and may include a frame payload field (`|frame=`) when a camera is available.
+Current payload format is versioned text (`v9|...`) and may include a frame payload field (`|frame=`) when a camera is available.
 
 ## Mac (listener in Docker)
 
@@ -51,12 +51,24 @@ When code changes locally, copy package to Pi before rebuilding:
 scp -r ~/ros2_ws/src/camerobot <pi-user>@<pi-ip>:~/ros2_ws/src/
 ```
 
+If you are running from the ROS Docker container used in this repo, use the container path:
+
+```bash
+scp -r /workspace/src/camerobot <pi-user>@<pi-ip>:~/ros2_ws/src/
+```
+
+Example used for this setup:
+
+```bash
+scp -r /workspace/src/camerobot erinb@192.168.68.75:~/ros2_ws/src/
+```
+
 Then rebuild on Pi using the build command above.
 
 ## Quick Local Smoke Test (single machine)
 
 ```bash
-cd /workspace/src
+cd /workspace
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 

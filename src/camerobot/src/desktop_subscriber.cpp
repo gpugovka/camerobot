@@ -56,6 +56,9 @@ bool parse_remote_options(
     } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
       show_help = true;
       return true;
+    } else {
+      std::fprintf(stderr, "Unknown or incomplete argument: %s\n", argv[i]);
+      return false;
     }
   }
 
@@ -70,6 +73,11 @@ public:
   : Node("desktop_subscriber"), remote_host_(remote_host), remote_port_(remote_port), running_(true), socket_fd_(-1)
   {
     publisher_ = create_publisher<std_msgs::msg::String>("topic", 10);
+    RCLCPP_INFO(
+      get_logger(),
+      "TCP bridge target configured: host=%s port=%u",
+      remote_host_.c_str(),
+      static_cast<unsigned>(remote_port_));
     receiver_thread_ = std::thread([this]() { receiver_loop(); });
   }
 
@@ -87,10 +95,21 @@ private:
   {
     while (running_.load()) {
       if (!connect_to_remote()) {
+        RCLCPP_WARN(
+          get_logger(),
+          "TCP connect failed to %s:%u; retrying in 5s",
+          remote_host_.c_str(),
+          static_cast<unsigned>(remote_port_));
         sleep_retry();
         continue;
       }
+      RCLCPP_INFO(
+        get_logger(),
+        "TCP bridge connected to %s:%u",
+        remote_host_.c_str(),
+        static_cast<unsigned>(remote_port_));
       read_loop();
+      RCLCPP_WARN(get_logger(), "TCP bridge disconnected; reconnecting");
       close_socket();
       sleep_retry();
     }
@@ -106,7 +125,14 @@ private:
 
     addrinfo *result = nullptr;
     const std::string port_text = std::to_string(remote_port_);
-    if (getaddrinfo(remote_host_.c_str(), port_text.c_str(), &hints, &result) != 0) {
+    const int gai_status = getaddrinfo(remote_host_.c_str(), port_text.c_str(), &hints, &result);
+    if (gai_status != 0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Address resolution failed for %s:%s: %s",
+        remote_host_.c_str(),
+        port_text.c_str(),
+        gai_strerror(gai_status));
       return false;
     }
 
@@ -158,6 +184,7 @@ private:
 
   void publish_remote_message(const std::string &text)
   {
+    RCLCPP_INFO(get_logger(), "Received from TCP bridge: '%s'", text.c_str());
     auto message = std_msgs::msg::String();
     message.data = text;
     publisher_->publish(message);
