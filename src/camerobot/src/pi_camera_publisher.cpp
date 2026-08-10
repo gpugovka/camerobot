@@ -51,6 +51,8 @@ public:
     camera_ready_ = camera_.open(0);
     if (!camera_ready_) {
       RCLCPP_WARN(get_logger(), "Camera open failed; frame payloads will be skipped");
+    } else {
+      RCLCPP_INFO(get_logger(), "Camera opened successfully");
     }
 
     timer_ = create_wall_timer(500ms, std::bind(&PiCameraPublisher::timer_callback, this));
@@ -141,6 +143,7 @@ private:
           if (!running_.load()) {
             break;
           }
+          outbound.clear();
           outgoing_queue_.swap(outbound);
         }
 
