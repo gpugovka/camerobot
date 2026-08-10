@@ -42,7 +42,7 @@ public:
   PiCameraPublisher(uint16_t port)
   : Node("pi_camera_publisher"), count_(0), port_(port), running_(true), listen_fd_(-1), client_fd_(-1)
   {
-    publisher_ = this->create_publisher<std_msgs::msg::String>("topic", 10);
+    publisher_ = create_publisher<std_msgs::msg::String>("topic", 10);
 
     struct utsname sys_info;
     uname(&sys_info);
@@ -50,10 +50,10 @@ public:
 
     camera_ready_ = camera_.open(0);
     if (!camera_ready_) {
-      RCLCPP_WARN(this->get_logger(), "Camera open failed; frame payloads will be skipped");
+      RCLCPP_WARN(get_logger(), "Camera open failed; frame payloads will be skipped");
     }
 
-    timer_ = this->create_wall_timer(500ms, std::bind(&PiCameraPublisher::timer_callback, this));
+    timer_ = create_wall_timer(500ms, std::bind(&PiCameraPublisher::timer_callback, this));
     start_tcp_server();
   }
 
@@ -67,7 +67,7 @@ private:
   {
     listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd_ < 0) {
-      RCLCPP_WARN(this->get_logger(), "Could not create TCP socket: %s", std::strerror(errno));
+      RCLCPP_WARN(get_logger(), "Could not create TCP socket: %s", std::strerror(errno));
       return;
     }
 
@@ -80,21 +80,21 @@ private:
     addr.sin_port = htons(port_);
 
     if (bind(listen_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-      RCLCPP_WARN(this->get_logger(), "Could not bind TCP socket on port %u: %s", port_, std::strerror(errno));
+      RCLCPP_WARN(get_logger(), "Could not bind TCP socket on port %u: %s", port_, std::strerror(errno));
       close(listen_fd_);
       listen_fd_ = -1;
       return;
     }
 
     if (listen(listen_fd_, 1) < 0) {
-      RCLCPP_WARN(this->get_logger(), "Could not listen on TCP socket: %s", std::strerror(errno));
+      RCLCPP_WARN(get_logger(), "Could not listen on TCP socket: %s", std::strerror(errno));
       close(listen_fd_);
       listen_fd_ = -1;
       return;
     }
 
     accept_thread_ = std::thread([this]() { accept_loop(); });
-    RCLCPP_INFO(this->get_logger(), "TCP bridge listening on port %u", port_);
+    RCLCPP_INFO(get_logger(), "TCP bridge listening on port %u", port_);
   }
 
   void stop_tcp_server()
@@ -129,7 +129,7 @@ private:
         client_fd_ = fd;
       }
       client_connected_.store(true);
-      RCLCPP_INFO(this->get_logger(), "TCP client connected from %s", inet_ntoa(client_addr.sin_addr));
+      RCLCPP_INFO(get_logger(), "TCP client connected from %s", inet_ntoa(client_addr.sin_addr));
 
       std::deque<std::string> outbound;
       while (running_.load()) {
@@ -194,12 +194,12 @@ private:
   {
     auto message = std_msgs::msg::String();
     message.data = "v5|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
-    RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
+    RCLCPP_INFO(get_logger(), "Publishing: '%s'", message.data.c_str());
     publisher_->publish(message);
 
     std::string wire_message = message.data;
     const std::string frame_serialized =
-      serialize_frame_to_string(camera_, camera_ready_, this->get_logger());
+      serialize_frame_to_string(camera_, camera_ready_, get_logger());
     if (!frame_serialized.empty()) {
       const std::vector<uint8_t> jpeg_bytes = deserialize_frame_to_jpeg_bytes(frame_serialized);
       if (!jpeg_bytes.empty()) {

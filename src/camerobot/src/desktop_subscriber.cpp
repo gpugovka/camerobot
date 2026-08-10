@@ -5,7 +5,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
-#include <netinet/in.h>
+#include <netdb.h>
 #include <string>
 #include <sys/socket.h>
 #include <thread>
@@ -17,13 +17,59 @@
 
 using namespace std::chrono_literals;
 
+namespace
+{
+constexpr const char *kDefaultRemoteHost = "localhost";
+constexpr uint16_t kDefaultRemotePort = 8080;
+
+void print_usage(const char *program_name)
+{
+  std::printf(
+    "Usage: %s [--remote-ip <ip-or-host>] [--remote-port <port>]\n"
+    "Defaults: --remote-ip %s --remote-port %u\n",
+    program_name,
+    kDefaultRemoteHost,
+    static_cast<unsigned>(kDefaultRemotePort));
+}
+
+bool parse_remote_options(
+  int argc,
+  char *argv[],
+  std::string &remote_host,
+  uint16_t &remote_port,
+  bool &show_help)
+{
+  remote_host = kDefaultRemoteHost;
+  remote_port = kDefaultRemotePort;
+  show_help = false;
+
+  for (int i = 1; i < argc; ++i) {
+    if ((std::strcmp(argv[i], "--remote-ip") == 0 || std::strcmp(argv[i], "--remote-host") == 0) && i + 1 < argc) {
+      remote_host = argv[++i];
+    } else if (std::strcmp(argv[i], "--remote-port") == 0 && i + 1 < argc) {
+      const long parsed_port = std::strtol(argv[++i], nullptr, 10);
+      if (parsed_port < 1 || parsed_port > 65535) {
+        std::fprintf(stderr, "Invalid --remote-port value: %ld\n", parsed_port);
+        return false;
+      }
+      remote_port = static_cast<uint16_t>(parsed_port);
+    } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
+      show_help = true;
+      return true;
+    }
+  }
+
+  return true;
+}
+}  // namespace
+
 class DesktopSubscriber : public rclcpp::Node
 {
 public:
-  DesktopSubscriber(const std::string &remote_ip, uint16_t remote_port)
-  : Node("desktop_subscriber"), remote_ip_(remote_ip), remote_port_(remote_port), running_(true), socket_fd_(-1)
+  DesktopSubscriber(const std::string &remote_host, uint16_t remote_port)
+  : Node("desktop_subscriber"), remote_host_(remote_host), remote_port_(remote_port), running_(true), socket_fd_(-1)
   {
-    publisher_ = this->create_publisher<std_msgs::msg::String>("topic", 10);
+    publisher_ = create_publisher<std_msgs::msg::String>("topic", 10);
     receiver_thread_ = std::thread([this]() { receiver_loop(); });
   }
 
@@ -52,24 +98,36 @@ private:
 
   bool connect_to_remote()
   {
-    socket_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd_ < 0) {
+    close_socket();
+
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo *result = nullptr;
+    const std::string port_text = std::to_string(remote_port_);
+    if (getaddrinfo(remote_host_.c_str(), port_text.c_str(), &hints, &result) != 0) {
       return false;
     }
 
-    sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(remote_port_);
-    if (inet_pton(AF_INET, remote_ip_.c_str(), &server_addr.sin_addr) != 1) {
-      close_socket();
-      return false;
+    bool connected = false;
+    for (addrinfo *rp = result; rp != nullptr; rp = rp->ai_next) {
+      const int candidate_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+      if (candidate_fd < 0) {
+        continue;
+      }
+
+      if (connect(candidate_fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+        socket_fd_ = candidate_fd;
+        connected = true;
+        break;
+      }
+
+      close(candidate_fd);
     }
 
-    if (connect(socket_fd_, reinterpret_cast<sockaddr *>(&server_addr), sizeof(server_addr)) < 0) {
-      close_socket();
-      return false;
-    }
-    return true;
+    freeaddrinfo(result);
+    return connected;
   }
 
   void read_loop()
@@ -130,7 +188,7 @@ private:
   }
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
-  std::string remote_ip_;
+  std::string remote_host_;
   uint16_t remote_port_;
   std::atomic<bool> running_;
   int socket_fd_;
@@ -139,18 +197,20 @@ private:
 
 int main(int argc, char *argv[])
 {
-  std::string remote_ip = "127.0.0.1";
-  uint16_t remote_port = 8080;
-  for (int i = 1; i < argc; ++i) {
-    if (std::strcmp(argv[i], "--remote-ip") == 0 && i + 1 < argc) {
-      remote_ip = argv[++i];
-    } else if (std::strcmp(argv[i], "--remote-port") == 0 && i + 1 < argc) {
-      remote_port = static_cast<uint16_t>(std::stoi(argv[++i]));
-    }
+  std::string remote_host;
+  uint16_t remote_port = 0;
+  bool show_help = false;
+  if (!parse_remote_options(argc, argv, remote_host, remote_port, show_help)) {
+    print_usage(argv[0]);
+    return 1;
+  }
+  if (show_help) {
+    print_usage(argv[0]);
+    return 0;
   }
 
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<DesktopSubscriber>(remote_ip, remote_port));
+  rclcpp::spin(std::make_shared<DesktopSubscriber>(remote_host, remote_port));
   rclcpp::shutdown();
   return 0;
 }
