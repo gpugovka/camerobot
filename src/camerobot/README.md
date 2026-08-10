@@ -4,7 +4,7 @@ This package builds two executables:
 - `talker` (`src/pi_camera_publisher.cpp`): publishes ROS text messages and serves TCP payloads.
 - `listener` (`src/desktop_subscriber.cpp`): receives TCP payloads and republishes to ROS.
 
-Current payload format is versioned text (`v9|...`) and may include a frame payload field (`|frame=`) when a camera is available.
+Current payload format is versioned text (`v11|...`) and may include a frame payload field (`|frame=`) when a camera is available.
 
 ## Mac (listener in Docker)
 
@@ -57,13 +57,54 @@ If you are running from the ROS Docker container used in this repo, use the cont
 scp -r /workspace/src/camerobot <pi-user>@<pi-ip>:~/ros2_ws/src/
 ```
 
-Example used for this setup:
+Then rebuild on Pi using the build command above.
+
+## Swampy Pi Build (swap + clean + rebuild)
+
+Use this when Pi builds are slow or memory-constrained.
+
+Mac/container sync:
 
 ```bash
-scp -r /workspace/src/camerobot erinb@192.168.68.75:~/ros2_ws/src/
+cd /workspace
+scp -r /workspace/src/camerobot <pi-user>@<pi-ip>:/home/<pi-user>/ros2_ws/src/
 ```
 
-Then rebuild on Pi using the build command above.
+Pi swap, clean, build, run:
+
+```bash
+cd /home/<pi-user>/ros2_ws
+source /opt/ros/jazzy/setup.bash
+
+sudo swapoff -a 2>/dev/null || true
+sudo rm -f /swapfile
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+echo 'vm.swappiness=60' | sudo tee /etc/sysctl.d/99-swappiness.conf
+sudo sysctl -w vm.swappiness=60
+
+pkill -f "ros2 run camerobot talker" || true
+pkill -f "ros2 run camerobot listener" || true
+rm -rf /home/<pi-user>/ros2_ws/build /home/<pi-user>/ros2_ws/install /home/<pi-user>/ros2_ws/log /home/<pi-user>/ros2_ws/frames
+
+colcon build --packages-select camerobot --symlink-install --parallel-workers 1 --cmake-args -DCMAKE_BUILD_PARALLEL_LEVEL=1
+source /home/<pi-user>/ros2_ws/install/setup.bash
+ros2 run camerobot talker --tcp-port 8080
+```
+
+Mac/container listener + pull latest Pi frame:
+
+```bash
+cd /workspace
+source /opt/ros/jazzy/setup.bash
+source /workspace/install/setup.bash
+ros2 run camerobot listener --remote-ip <pi-ip> --remote-port 8080
+mkdir -p /workspace/frames
+scp <pi-user>@<pi-ip>:/home/<pi-user>/ros2_ws/frames/last_frame_sent.jpg /workspace/frames/last_frame_from_pi.jpg
+```
 
 ## Quick Local Smoke Test (single machine)
 

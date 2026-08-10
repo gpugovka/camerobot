@@ -193,7 +193,7 @@ private:
   void timer_callback()
   {
     auto message = std_msgs::msg::String();
-    message.data = "v9|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
+    message.data = "v11|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
     RCLCPP_INFO(get_logger(), "Publishing: '%s'", message.data.c_str());
     publisher_->publish(message);
 
