@@ -117,6 +117,31 @@ std::string serialize_frame_to_string_using_rpicam_still(const rclcpp::Logger &l
 #endif
 }
 
+std::string serialize_static_image(const std::string &path, const rclcpp::Logger &logger)
+{
+  std::error_code error;
+  const uintmax_t file_size = std::filesystem::file_size(path, error);
+  if (error || file_size < 4) {
+    RCLCPP_WARN(logger, "Test image not found or empty: %s", path.c_str());
+    return "";
+  }
+
+  std::ifstream input(path, std::ios::binary);
+  if (!input.is_open()) {
+    RCLCPP_WARN(logger, "Could not open test image: %s", path.c_str());
+    return "";
+  }
+
+  std::vector<uint8_t> jpeg_bytes(static_cast<size_t>(file_size));
+  input.read(reinterpret_cast<char *>(jpeg_bytes.data()), static_cast<std::streamsize>(jpeg_bytes.size()));
+  if (!(jpeg_bytes[0] == 0xFF && jpeg_bytes[1] == 0xD8)) {
+    RCLCPP_WARN(logger, "Test image does not start with JPEG marker: %s", path.c_str());
+    return "";
+  }
+
+  return camerobot::base64_encode(jpeg_bytes);
+}
+
 std::vector<uint8_t> deserialize_frame_to_jpeg_bytes(const std::string &frame_serialized)
 {
   return camerobot::base64_decode(frame_serialized);

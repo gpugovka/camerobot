@@ -53,8 +53,8 @@ static std::string summarize_wire_message(const std::string &text)
 class PiCameraPublisher : public rclcpp::Node
 {
 public:
-  PiCameraPublisher(uint16_t port)
-  : Node("pi_camera_publisher"), count_(0), port_(port), running_(true), listen_fd_(-1), client_fd_(-1)
+  PiCameraPublisher(uint16_t port, const std::string &test_image_path)
+  : Node("pi_camera_publisher"), count_(0), port_(port), running_(true), listen_fd_(-1), client_fd_(-1), test_image_path_(test_image_path)
   {
     publisher_ = create_publisher<std_msgs::msg::String>("topic", 10);
 
@@ -119,8 +119,13 @@ private:
 
   void select_capture_workflow()
   {
+    if (!test_image_path_.empty()) {
+      capture_workflow_ = CaptureWorkflow::None;
+      RCLCPP_INFO(get_logger(), "Capture workflow selected: static test image (%s)", test_image_path_.c_str());
+      return;
+    }
+
     if (detect_rpicam_still()) {
-      use_rpicam_still_ = true;
       capture_workflow_ = CaptureWorkflow::RpicamStill;
       RCLCPP_INFO(get_logger(), "Capture workflow selected: rpicam-still");
       return;
@@ -304,7 +309,9 @@ private:
 
     std::string wire_message = message.data;
     std::string frame_serialized;
-    if (capture_workflow_ == CaptureWorkflow::RpicamStill) {
+    if (!test_image_path_.empty()) {
+      frame_serialized = serialize_static_image(test_image_path_, get_logger());
+    } else if (capture_workflow_ == CaptureWorkflow::RpicamStill) {
       frame_serialized = serialize_frame_to_string_using_rpicam_still(get_logger());
     } else if (camera_ready_) {
       frame_serialized = serialize_frame_to_string(camera_, camera_ready_, get_logger());
@@ -328,13 +335,13 @@ private:
   std::string machine_info_;
   cv::VideoCapture camera_;
   bool camera_ready_ = false;
-  bool use_rpicam_still_ = false;
   CaptureWorkflow capture_workflow_ = CaptureWorkflow::None;
 
   uint16_t port_;
   std::atomic<bool> running_;
   int listen_fd_;
   int client_fd_;
+  std::string test_image_path_;
   std::atomic<bool> client_connected_ = false;
   std::mutex client_mutex_;
   std::thread accept_thread_;
@@ -346,14 +353,17 @@ private:
 int main(int argc, char *argv[])
 {
   uint16_t tcp_port = 8080;
+  std::string test_image_path;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--tcp-port") == 0 && i + 1 < argc) {
       tcp_port = static_cast<uint16_t>(std::stoi(argv[++i]));
+    } else if (std::strcmp(argv[i], "--test-image") == 0 && i + 1 < argc) {
+      test_image_path = argv[++i];
     }
   }
 
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<PiCameraPublisher>(tcp_port));
+  rclcpp::spin(std::make_shared<PiCameraPublisher>(tcp_port, test_image_path));
   rclcpp::shutdown();
   return 0;
 }
