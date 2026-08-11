@@ -68,12 +68,17 @@ public:
       select_capture_workflow();
     }
 
+    if (capture_workflow_ == CaptureWorkflow::RpicamStill) {
+      start_capture_thread();
+    }
+
     timer_ = create_wall_timer(500ms, std::bind(&PiCameraPublisher::timer_callback, this));
     start_tcp_server();
   }
 
   ~PiCameraPublisher() override
   {
+    stop_capture_thread();
     stop_tcp_server();
   }
 
@@ -119,6 +124,34 @@ private:
       camera_.get(cv::CAP_PROP_FRAME_WIDTH),
       camera_.get(cv::CAP_PROP_FRAME_HEIGHT),
       camera_.get(cv::CAP_PROP_FPS));
+  }
+
+  void start_capture_thread()
+  {
+    capture_running_.store(true);
+    capture_thread_ = std::thread([this]() {
+      while (capture_running_.load()) {
+        std::string fresh = serialize_frame_to_string_using_rpicam_still(get_logger());
+        if (!fresh.empty()) {
+          std::lock_guard<std::mutex> lock(frame_mutex_);
+          latest_frame_ = std::move(fresh);
+        }
+      }
+    });
+  }
+
+  void stop_capture_thread()
+  {
+    capture_running_.store(false);
+    if (capture_thread_.joinable()) {
+      capture_thread_.join();
+    }
+  }
+
+  std::string take_latest_frame()
+  {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    return latest_frame_;
   }
 
   void select_capture_workflow()
@@ -302,7 +335,7 @@ private:
   void timer_callback()
   {
     auto message = std_msgs::msg::String();
-    message.data = "v13|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
+    message.data = "v14|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
     publisher_->publish(message);
 
     std::string wire_message = message.data;
@@ -310,7 +343,7 @@ private:
     if (test_provider_) {
       frame_serialized = test_provider_->next_frame(get_logger());
     } else if (capture_workflow_ == CaptureWorkflow::RpicamStill) {
-      frame_serialized = serialize_frame_to_string_using_rpicam_still(get_logger());
+      frame_serialized = take_latest_frame();
     } else if (camera_ready_) {
       frame_serialized = serialize_frame_to_string(camera_, camera_ready_, get_logger());
     }
@@ -335,6 +368,11 @@ private:
   bool camera_ready_ = false;
   CaptureWorkflow capture_workflow_ = CaptureWorkflow::None;
   std::unique_ptr<camerobot::TestImageProvider> test_provider_;
+
+  std::atomic<bool> capture_running_{false};
+  std::thread capture_thread_;
+  std::mutex frame_mutex_;
+  std::string latest_frame_;
 
   uint16_t port_;
   std::atomic<bool> running_;
