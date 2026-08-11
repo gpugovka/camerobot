@@ -22,6 +22,18 @@ namespace
 constexpr const char *kDefaultRemoteHost = "localhost";
 constexpr uint16_t kDefaultRemotePort = 8080;
 
+std::string summarize_wire_message(const std::string &text)
+{
+  const size_t marker_pos = text.find("|frame=");
+  if (marker_pos == std::string::npos) {
+    return text + " [frame=none]";
+  }
+
+  const std::string prefix = text.substr(0, marker_pos);
+  const size_t frame_chars = text.size() - (marker_pos + 7);
+  return prefix + " [frame=attached chars=" + std::to_string(frame_chars) + "]";
+}
+
 void print_usage(const char *program_name)
 {
   std::printf(
@@ -184,7 +196,7 @@ private:
 
   void publish_remote_message(const std::string &text)
   {
-    RCLCPP_INFO(get_logger(), "Received from TCP bridge: '%s'", text.c_str());
+    RCLCPP_INFO(get_logger(), "Received from TCP bridge: '%s'", summarize_wire_message(text).c_str());
     auto message = std_msgs::msg::String();
     message.data = text;
     publisher_->publish(message);

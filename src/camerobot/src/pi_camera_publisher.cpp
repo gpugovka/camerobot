@@ -38,6 +38,18 @@ static bool send_all(int fd, const char *data, size_t size)
   return true;
 }
 
+static std::string summarize_wire_message(const std::string &text)
+{
+  const size_t marker_pos = text.find("|frame=");
+  if (marker_pos == std::string::npos) {
+    return text + " [frame=none]";
+  }
+
+  const std::string prefix = text.substr(0, marker_pos);
+  const size_t frame_chars = text.size() - (marker_pos + 7);
+  return prefix + " [frame=attached chars=" + std::to_string(frame_chars) + "]";
+}
+
 class PiCameraPublisher : public rclcpp::Node
 {
 public:
@@ -288,7 +300,6 @@ private:
   {
     auto message = std_msgs::msg::String();
     message.data = "v12|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
-    RCLCPP_INFO(get_logger(), "Publishing: '%s'", message.data.c_str());
     publisher_->publish(message);
 
     std::string wire_message = message.data;
@@ -306,6 +317,8 @@ private:
       wire_message += "|frame=" + frame_serialized;
     }
     wire_message += "\n";
+    const std::string log_message = wire_message.substr(0, wire_message.size() - 1);
+    RCLCPP_INFO(get_logger(), "Publishing payload: '%s'", summarize_wire_message(log_message).c_str());
     queue_message(wire_message);
   }
 
