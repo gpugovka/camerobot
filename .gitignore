@@ -1,0 +1,12 @@
+swampy-pi-and-mac-build.md
+swampy-pi-and-mac-build.pdf
+.listener_v5.log
+.tmp/
+.vscode/
+build/
+camerobot-src.tar.gz
+frames/
+install/
+last_frame_sent.jpg
+log/
+src/camerobot/frames/

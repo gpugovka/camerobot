@@ -5,9 +5,11 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <netinet/in.h>
+#include <cstdlib>
 #include <string>
 #include <sys/socket.h>
 #include <sys/utsname.h>
@@ -48,10 +50,7 @@ public:
     uname(&sys_info);
     machine_info_ = std::string(sys_info.sysname) + " (" + std::string(sys_info.machine) + ")";
 
-    camera_ready_ = camera_.open(0);
-    if (!camera_ready_) {
-      RCLCPP_WARN(get_logger(), "Camera open failed; frame payloads will be skipped");
-    }
+    select_capture_workflow();
 
     timer_ = create_wall_timer(500ms, std::bind(&PiCameraPublisher::timer_callback, this));
     start_tcp_server();
@@ -63,6 +62,101 @@ public:
   }
 
 private:
+  enum class CaptureWorkflow {
+    None,
+    RpicamStill,
+    OpenCvV4L2,
+    OpenCvDefault,
+  };
+
+  bool detect_rpicam_still() const
+  {
+    const int result = std::system("command -v rpicam-still >/dev/null 2>&1");
+    return result == 0;
+  }
+
+  bool has_video_device() const
+  {
+    return std::filesystem::exists("/dev/video0");
+  }
+
+  const char *capture_workflow_name() const
+  {
+    switch (capture_workflow_) {
+      case CaptureWorkflow::RpicamStill:
+        return "rpicam-still";
+      case CaptureWorkflow::OpenCvV4L2:
+        return "opencv-v4l2";
+      case CaptureWorkflow::OpenCvDefault:
+        return "opencv-default";
+      case CaptureWorkflow::None:
+      default:
+        return "none";
+    }
+  }
+
+  void log_camera_properties()
+  {
+    RCLCPP_INFO(
+      get_logger(), "Capture workflow=%s width=%.0f height=%.0f fps=%.0f",
+      capture_workflow_name(),
+      camera_.get(cv::CAP_PROP_FRAME_WIDTH),
+      camera_.get(cv::CAP_PROP_FRAME_HEIGHT),
+      camera_.get(cv::CAP_PROP_FPS));
+  }
+
+  void select_capture_workflow()
+  {
+    if (detect_rpicam_still()) {
+      use_rpicam_still_ = true;
+      capture_workflow_ = CaptureWorkflow::RpicamStill;
+      RCLCPP_INFO(get_logger(), "Capture workflow selected: rpicam-still");
+      return;
+    }
+
+    RCLCPP_WARN(get_logger(), "rpicam-still not found; checking OpenCV camera backends");
+
+    if (!has_video_device()) {
+      capture_workflow_ = CaptureWorkflow::None;
+      RCLCPP_WARN(get_logger(), "No /dev/video0 device available; frame payloads will be skipped");
+      return;
+    }
+
+    if (initialize_camera(cv::CAP_V4L2)) {
+      capture_workflow_ = CaptureWorkflow::OpenCvV4L2;
+      camera_ready_ = true;
+      log_camera_properties();
+      return;
+    }
+
+    RCLCPP_WARN(
+      get_logger(),
+      "OpenCV V4L2 backend could not open /dev/video0; trying default backend as last fallback");
+
+    if (initialize_camera(cv::CAP_ANY)) {
+      capture_workflow_ = CaptureWorkflow::OpenCvDefault;
+      camera_ready_ = true;
+      log_camera_properties();
+      return;
+    }
+
+    capture_workflow_ = CaptureWorkflow::None;
+    RCLCPP_WARN(get_logger(), "No camera workflow could be initialized; frame payloads will be skipped");
+  }
+
+  bool initialize_camera(int api_preference)
+  {
+    if (camera_.open(0, api_preference)) {
+      camera_.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+      camera_.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+      camera_.set(cv::CAP_PROP_FPS, 15);
+      camera_.set(cv::CAP_PROP_BUFFERSIZE, 1);
+      return true;
+    }
+
+    return false;
+  }
+
   void start_tcp_server()
   {
     listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -193,13 +287,17 @@ private:
   void timer_callback()
   {
     auto message = std_msgs::msg::String();
-    message.data = "v11|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
+    message.data = "v12|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
     RCLCPP_INFO(get_logger(), "Publishing: '%s'", message.data.c_str());
     publisher_->publish(message);
 
     std::string wire_message = message.data;
-    const std::string frame_serialized =
-      serialize_frame_to_string(camera_, camera_ready_, get_logger());
+    std::string frame_serialized;
+    if (capture_workflow_ == CaptureWorkflow::RpicamStill) {
+      frame_serialized = serialize_frame_to_string_using_rpicam_still(get_logger());
+    } else if (camera_ready_) {
+      frame_serialized = serialize_frame_to_string(camera_, camera_ready_, get_logger());
+    }
     if (!frame_serialized.empty()) {
       const std::vector<uint8_t> jpeg_bytes = deserialize_frame_to_jpeg_bytes(frame_serialized);
       if (!jpeg_bytes.empty()) {
@@ -217,6 +315,8 @@ private:
   std::string machine_info_;
   cv::VideoCapture camera_;
   bool camera_ready_ = false;
+  bool use_rpicam_still_ = false;
+  CaptureWorkflow capture_workflow_ = CaptureWorkflow::None;
 
   uint16_t port_;
   std::atomic<bool> running_;

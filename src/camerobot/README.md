@@ -4,7 +4,7 @@ This package builds two executables:
 - `talker` (`src/pi_camera_publisher.cpp`): publishes ROS text messages and serves TCP payloads.
 - `listener` (`src/desktop_subscriber.cpp`): receives TCP payloads and republishes to ROS.
 
-Current payload format is versioned text (`v11|...`) and may include a frame payload field (`|frame=`) when a camera is available.
+Current payload format is versioned text (`v12|...`) and may include a frame payload field (`|frame=`) when a camera is available.
 
 ## Mac (listener in Docker)
 
