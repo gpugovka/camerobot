@@ -10,6 +10,7 @@
 #include <mutex>
 #include <netinet/in.h>
 #include <cstdlib>
+#include <random>
 #include <string>
 #include <sys/socket.h>
 #include <sys/utsname.h>
@@ -17,6 +18,7 @@
 #include <unistd.h>
 
 #include "camerobot/frame_image_serialization.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
@@ -53,8 +55,8 @@ static std::string summarize_wire_message(const std::string &text)
 class PiCameraPublisher : public rclcpp::Node
 {
 public:
-  PiCameraPublisher(uint16_t port, const std::string &test_image_path)
-  : Node("pi_camera_publisher"), count_(0), port_(port), running_(true), listen_fd_(-1), client_fd_(-1), test_image_path_(test_image_path)
+  PiCameraPublisher(uint16_t port, const std::string &test_image_path, bool test_mode)
+  : Node("pi_camera_publisher"), count_(0), port_(port), running_(true), listen_fd_(-1), client_fd_(-1), test_image_path_(test_image_path), test_mode_(test_mode)
   {
     publisher_ = create_publisher<std_msgs::msg::String>("topic", 10);
 
@@ -122,6 +124,15 @@ private:
     if (!test_image_path_.empty()) {
       capture_workflow_ = CaptureWorkflow::None;
       RCLCPP_INFO(get_logger(), "Capture workflow selected: static test image (%s)", test_image_path_.c_str());
+      return;
+    }
+
+    if (test_mode_) {
+      capture_workflow_ = CaptureWorkflow::None;
+      const std::string share = ament_index_cpp::get_package_share_directory("camerobot");
+      test_backyard_path_ = share + "/resources/test_backyard.jpg";
+      test_invader_path_  = share + "/resources/test_invader.jpg";
+      RCLCPP_INFO(get_logger(), "Capture workflow selected: test-mode (80%% backyard / 20%% invader)");
       return;
     }
 
@@ -311,6 +322,12 @@ private:
     std::string frame_serialized;
     if (!test_image_path_.empty()) {
       frame_serialized = serialize_static_image(test_image_path_, get_logger());
+    } else if (test_mode_) {
+      // 80% backyard, 20% invader
+      static std::mt19937 rng{std::random_device{}()};
+      static std::bernoulli_distribution pick_invader{0.20};
+      const std::string &path = pick_invader(rng) ? test_invader_path_ : test_backyard_path_;
+      frame_serialized = serialize_static_image(path, get_logger());
     } else if (capture_workflow_ == CaptureWorkflow::RpicamStill) {
       frame_serialized = serialize_frame_to_string_using_rpicam_still(get_logger());
     } else if (camera_ready_) {
@@ -342,6 +359,9 @@ private:
   int listen_fd_;
   int client_fd_;
   std::string test_image_path_;
+  std::string test_backyard_path_;
+  std::string test_invader_path_;
+  bool test_mode_ = false;
   std::atomic<bool> client_connected_ = false;
   std::mutex client_mutex_;
   std::thread accept_thread_;
@@ -354,16 +374,19 @@ int main(int argc, char *argv[])
 {
   uint16_t tcp_port = 8080;
   std::string test_image_path;
+  bool test_mode = false;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--tcp-port") == 0 && i + 1 < argc) {
       tcp_port = static_cast<uint16_t>(std::stoi(argv[++i]));
     } else if (std::strcmp(argv[i], "--test-image") == 0 && i + 1 < argc) {
       test_image_path = argv[++i];
+    } else if (std::strcmp(argv[i], "--test-mode") == 0) {
+      test_mode = true;
     }
   }
 
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<PiCameraPublisher>(tcp_port, test_image_path));
+  rclcpp::spin(std::make_shared<PiCameraPublisher>(tcp_port, test_image_path, test_mode));
   rclcpp::shutdown();
   return 0;
 }
