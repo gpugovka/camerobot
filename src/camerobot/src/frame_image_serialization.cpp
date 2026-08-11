@@ -63,12 +63,12 @@ std::string serialize_frame_to_string(cv::VideoCapture &camera, bool camera_read
 std::string serialize_frame_to_string_using_rpicam_still(const rclcpp::Logger &logger)
 {
 #if defined(__linux__)
-  const std::filesystem::path output_path = "/tmp/test_frame.jpg";
+  const std::filesystem::path output_path = "/tmp/pi_frame.jpg";
   std::error_code error;
   std::filesystem::remove(output_path, error);
 
   constexpr const char *kCaptureCommand =
-    "rpicam-still -o /tmp/test_frame.jpg >/dev/null 2>&1";
+    "rpicam-still -o /tmp/pi_frame.jpg >/dev/null 2>&1";
   const int exit_code = std::system(kCaptureCommand);
   if (exit_code != 0) {
     RCLCPP_WARN(logger, "rpicam-still command failed with exit code %d", exit_code);

@@ -10,7 +10,6 @@
 #include <mutex>
 #include <netinet/in.h>
 #include <cstdlib>
-#include <random>
 #include <string>
 #include <sys/socket.h>
 #include <sys/utsname.h>
@@ -18,7 +17,7 @@
 #include <unistd.h>
 
 #include "camerobot/frame_image_serialization.hpp"
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "camerobot/test_image_provider.hpp"
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
@@ -56,7 +55,7 @@ class PiCameraPublisher : public rclcpp::Node
 {
 public:
   PiCameraPublisher(uint16_t port, const std::string &test_image_path, bool test_mode)
-  : Node("pi_camera_publisher"), count_(0), port_(port), running_(true), listen_fd_(-1), client_fd_(-1), test_image_path_(test_image_path), test_mode_(test_mode)
+  : Node("pi_camera_publisher"), count_(0), port_(port), running_(true), listen_fd_(-1), client_fd_(-1)
   {
     publisher_ = create_publisher<std_msgs::msg::String>("topic", 10);
 
@@ -64,7 +63,10 @@ public:
     uname(&sys_info);
     machine_info_ = std::string(sys_info.sysname) + " (" + std::string(sys_info.machine) + ")";
 
-    select_capture_workflow();
+    test_provider_ = camerobot::TestImageProvider::make_if_active(test_image_path, test_mode, get_logger());
+    if (!test_provider_) {
+      select_capture_workflow();
+    }
 
     timer_ = create_wall_timer(500ms, std::bind(&PiCameraPublisher::timer_callback, this));
     start_tcp_server();
@@ -121,21 +123,6 @@ private:
 
   void select_capture_workflow()
   {
-    if (!test_image_path_.empty()) {
-      capture_workflow_ = CaptureWorkflow::None;
-      RCLCPP_INFO(get_logger(), "Capture workflow selected: static test image (%s)", test_image_path_.c_str());
-      return;
-    }
-
-    if (test_mode_) {
-      capture_workflow_ = CaptureWorkflow::None;
-      const std::string share = ament_index_cpp::get_package_share_directory("camerobot");
-      test_backyard_path_ = share + "/resources/test_backyard.jpg";
-      test_invader_path_  = share + "/resources/test_invader.jpg";
-      RCLCPP_INFO(get_logger(), "Capture workflow selected: test-mode (80%% backyard / 20%% invader)");
-      return;
-    }
-
     if (detect_rpicam_still()) {
       capture_workflow_ = CaptureWorkflow::RpicamStill;
       RCLCPP_INFO(get_logger(), "Capture workflow selected: rpicam-still");
@@ -315,19 +302,13 @@ private:
   void timer_callback()
   {
     auto message = std_msgs::msg::String();
-    message.data = "v12|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
+    message.data = "v13|Hello from " + machine_info_ + "! Count: " + std::to_string(count_++);
     publisher_->publish(message);
 
     std::string wire_message = message.data;
     std::string frame_serialized;
-    if (!test_image_path_.empty()) {
-      frame_serialized = serialize_static_image(test_image_path_, get_logger());
-    } else if (test_mode_) {
-      // 80% backyard, 20% invader
-      static std::mt19937 rng{std::random_device{}()};
-      static std::bernoulli_distribution pick_invader{0.20};
-      const std::string &path = pick_invader(rng) ? test_invader_path_ : test_backyard_path_;
-      frame_serialized = serialize_static_image(path, get_logger());
+    if (test_provider_) {
+      frame_serialized = test_provider_->next_frame(get_logger());
     } else if (capture_workflow_ == CaptureWorkflow::RpicamStill) {
       frame_serialized = serialize_frame_to_string_using_rpicam_still(get_logger());
     } else if (camera_ready_) {
@@ -353,15 +334,12 @@ private:
   cv::VideoCapture camera_;
   bool camera_ready_ = false;
   CaptureWorkflow capture_workflow_ = CaptureWorkflow::None;
+  std::unique_ptr<camerobot::TestImageProvider> test_provider_;
 
   uint16_t port_;
   std::atomic<bool> running_;
   int listen_fd_;
   int client_fd_;
-  std::string test_image_path_;
-  std::string test_backyard_path_;
-  std::string test_invader_path_;
-  bool test_mode_ = false;
   std::atomic<bool> client_connected_ = false;
   std::mutex client_mutex_;
   std::thread accept_thread_;

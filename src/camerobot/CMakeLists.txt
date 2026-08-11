@@ -15,13 +15,15 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio)
 
-add_library(frame_image_serialization STATIC src/frame_image_serialization.cpp)
-ament_target_dependencies(frame_image_serialization rclcpp)
+add_library(frame_image_serialization STATIC
+  src/frame_image_serialization.cpp
+  src/test_image_provider.cpp)
+ament_target_dependencies(frame_image_serialization rclcpp ament_index_cpp)
 target_link_libraries(frame_image_serialization ${OpenCV_LIBS})
 target_include_directories(frame_image_serialization PUBLIC include ${OpenCV_INCLUDE_DIRS})
 
 add_executable(talker src/pi_camera_publisher.cpp)
-ament_target_dependencies(talker rclcpp std_msgs ament_index_cpp)
+ament_target_dependencies(talker rclcpp std_msgs)
 target_link_libraries(talker frame_image_serialization)
 
 target_include_directories(talker PRIVATE include)
